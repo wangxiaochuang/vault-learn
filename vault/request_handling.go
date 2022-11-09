@@ -10,7 +10,6 @@ const (
 )
 
 var (
-	DefaultMaxRequestDuration     = 90 * time.Second
-	egpDebugLogging               bool
-	enterpriseBlockRequestIfError = blockRequestIfErrorImpl
+	DefaultMaxRequestDuration = 90 * time.Second
+	egpDebugLogging           bool
 )
