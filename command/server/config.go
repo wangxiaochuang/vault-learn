@@ -800,6 +800,93 @@ func parseServiceRegistration(result *Config, list *ast.ObjectList, name string)
 	panic("not implement")
 }
 
+// p969
+func (c *Config) Sanitized() map[string]interface{} {
+	// Create shared config if it doesn't exist (e.g. in tests) so that map
+	// keys are actually populated
+	if c.SharedConfig == nil {
+		c.SharedConfig = new(configutil.SharedConfig)
+	}
+	sharedResult := c.SharedConfig.Sanitized()
+	result := map[string]interface{}{
+		"cache_size":              c.CacheSize,
+		"disable_sentinel_trace":  c.DisableSentinelTrace,
+		"disable_cache":           c.DisableCache,
+		"disable_printable_check": c.DisablePrintableCheck,
+
+		"enable_ui": c.EnableUI,
+
+		"max_lease_ttl":     c.MaxLeaseTTL / time.Second,
+		"default_lease_ttl": c.DefaultLeaseTTL / time.Second,
+
+		"cluster_cipher_suites": c.ClusterCipherSuites,
+
+		"plugin_directory": c.PluginDirectory,
+
+		"plugin_file_uid": c.PluginFileUid,
+
+		"plugin_file_permissions": c.PluginFilePermissions,
+
+		"raw_storage_endpoint": c.EnableRawEndpoint,
+
+		"api_addr":           c.APIAddr,
+		"cluster_addr":       c.ClusterAddr,
+		"disable_clustering": c.DisableClustering,
+
+		"disable_performance_standby": c.DisablePerformanceStandby,
+
+		"disable_sealwrap": c.DisableSealWrap,
+
+		"disable_indexing": c.DisableIndexing,
+
+		"enable_response_header_hostname": c.EnableResponseHeaderHostname,
+
+		"enable_response_header_raft_node_id": c.EnableResponseHeaderRaftNodeID,
+
+		"log_requests_level": c.LogRequestsLevel,
+	}
+	for k, v := range sharedResult {
+		result[k] = v
+	}
+
+	// Sanitize storage stanza
+	if c.Storage != nil {
+		sanitizedStorage := map[string]interface{}{
+			"type":               c.Storage.Type,
+			"redirect_addr":      c.Storage.RedirectAddr,
+			"cluster_addr":       c.Storage.ClusterAddr,
+			"disable_clustering": c.Storage.DisableClustering,
+		}
+		result["storage"] = sanitizedStorage
+	}
+
+	// Sanitize HA storage stanza
+	if c.HAStorage != nil {
+		sanitizedHAStorage := map[string]interface{}{
+			"type":               c.HAStorage.Type,
+			"redirect_addr":      c.HAStorage.RedirectAddr,
+			"cluster_addr":       c.HAStorage.ClusterAddr,
+			"disable_clustering": c.HAStorage.DisableClustering,
+		}
+		result["ha_storage"] = sanitizedHAStorage
+	}
+
+	// Sanitize service_registration stanza
+	if c.ServiceRegistration != nil {
+		sanitizedServiceRegistration := map[string]interface{}{
+			"type": c.ServiceRegistration.Type,
+		}
+		result["service_registration"] = sanitizedServiceRegistration
+	}
+
+	entConfigResult := c.entConfig.Sanitized()
+	for k, v := range entConfigResult {
+		result[k] = v
+	}
+
+	return result
+}
+
 // p1070
 func (c *Config) found(s, k string) {
 	delete(c.UnusedKeys, s)

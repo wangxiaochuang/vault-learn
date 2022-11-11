@@ -23,3 +23,10 @@ type FollowerStates struct {
 	l         sync.RWMutex
 	followers map[string]*FollowerState
 }
+
+// p209
+func NewFollowerStates() *FollowerStates {
+	return &FollowerStates{
+		followers: make(map[string]*FollowerState),
+	}
+}

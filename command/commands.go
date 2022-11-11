@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/vault/audit"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/hashicorp/vault/sdk/physical"
+	physInmem "github.com/hashicorp/vault/sdk/physical/inmem"
 	sr "github.com/hashicorp/vault/serviceregistration"
 	"github.com/mitchellh/cli"
 )
@@ -53,6 +54,7 @@ var (
 
 	physicalBackends = map[string]physical.Factory{
 		// "file": physFile.NewFileBackend,
+		"inmem": physInmem.NewInmem,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{

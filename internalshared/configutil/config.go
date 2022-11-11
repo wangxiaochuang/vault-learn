@@ -153,6 +153,89 @@ func ParseConfig(d string) (*SharedConfig, error) {
 	return &result, nil
 }
 
+func (c *SharedConfig) Sanitized() map[string]interface{} {
+	if c == nil {
+		return nil
+	}
+
+	result := map[string]interface{}{
+		"disable_mlock": c.DisableMlock,
+
+		"default_max_request_duration": c.DefaultMaxRequestDuration,
+
+		"log_level":  c.LogLevel,
+		"log_format": c.LogFormat,
+
+		"pid_file": c.PidFile,
+
+		"cluster_name": c.ClusterName,
+	}
+
+	// Sanitize listeners
+	if len(c.Listeners) != 0 {
+		var sanitizedListeners []interface{}
+		for _, ln := range c.Listeners {
+			cleanLn := map[string]interface{}{
+				"type":   ln.Type,
+				"config": ln.RawConfig,
+			}
+			sanitizedListeners = append(sanitizedListeners, cleanLn)
+		}
+		result["listeners"] = sanitizedListeners
+	}
+
+	// Sanitize seals stanza
+	if len(c.Seals) != 0 {
+		var sanitizedSeals []interface{}
+		for _, s := range c.Seals {
+			cleanSeal := map[string]interface{}{
+				"type":     s.Type,
+				"disabled": s.Disabled,
+			}
+			sanitizedSeals = append(sanitizedSeals, cleanSeal)
+		}
+		result["seals"] = sanitizedSeals
+	}
+
+	// Sanitize telemetry stanza
+	if c.Telemetry != nil {
+		sanitizedTelemetry := map[string]interface{}{
+			"statsite_address":                       c.Telemetry.StatsiteAddr,
+			"statsd_address":                         c.Telemetry.StatsdAddr,
+			"disable_hostname":                       c.Telemetry.DisableHostname,
+			"metrics_prefix":                         c.Telemetry.MetricsPrefix,
+			"usage_gauge_period":                     c.Telemetry.UsageGaugePeriod,
+			"maximum_gauge_cardinality":              c.Telemetry.MaximumGaugeCardinality,
+			"circonus_api_token":                     "",
+			"circonus_api_app":                       c.Telemetry.CirconusAPIApp,
+			"circonus_api_url":                       c.Telemetry.CirconusAPIURL,
+			"circonus_submission_interval":           c.Telemetry.CirconusSubmissionInterval,
+			"circonus_submission_url":                c.Telemetry.CirconusCheckSubmissionURL,
+			"circonus_check_id":                      c.Telemetry.CirconusCheckID,
+			"circonus_check_force_metric_activation": c.Telemetry.CirconusCheckForceMetricActivation,
+			"circonus_check_instance_id":             c.Telemetry.CirconusCheckInstanceID,
+			"circonus_check_search_tag":              c.Telemetry.CirconusCheckSearchTag,
+			"circonus_check_tags":                    c.Telemetry.CirconusCheckTags,
+			"circonus_check_display_name":            c.Telemetry.CirconusCheckDisplayName,
+			"circonus_broker_id":                     c.Telemetry.CirconusBrokerID,
+			"circonus_broker_select_tag":             c.Telemetry.CirconusBrokerSelectTag,
+			"dogstatsd_addr":                         c.Telemetry.DogStatsDAddr,
+			"dogstatsd_tags":                         c.Telemetry.DogStatsDTags,
+			"prometheus_retention_time":              c.Telemetry.PrometheusRetentionTime,
+			"stackdriver_project_id":                 c.Telemetry.StackdriverProjectID,
+			"stackdriver_location":                   c.Telemetry.StackdriverLocation,
+			"stackdriver_namespace":                  c.Telemetry.StackdriverNamespace,
+			"stackdriver_debug_logs":                 c.Telemetry.StackdriverDebugLogs,
+			"lease_metrics_epsilon":                  c.Telemetry.LeaseMetricsEpsilon,
+			"num_lease_metrics_buckets":              c.Telemetry.NumLeaseMetricsTimeBuckets,
+			"add_lease_metrics_namespace_labels":     c.Telemetry.LeaseMetricsNameSpaceLabels,
+		}
+		result["telemetry"] = sanitizedTelemetry
+	}
+
+	return result
+}
+
 // p249
 func (c *SharedConfig) found(s, k string) {
 	delete(c.UnusedKeys, s)

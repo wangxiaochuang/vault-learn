@@ -1,13 +1,26 @@
 package configutil
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-secure-stdlib/parseutil"
+
+	monitoring "cloud.google.com/go/monitoring/apiv3"
+	"github.com/armon/go-metrics"
+	"github.com/armon/go-metrics/circonus"
+	"github.com/armon/go-metrics/datadog"
+	"github.com/armon/go-metrics/prometheus"
+	stackdriver "github.com/google/go-metrics-stackdriver"
+	stackdrivervault "github.com/google/go-metrics-stackdriver/vault"
+	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/hcl"
 	"github.com/hashicorp/hcl/hcl/ast"
+	"github.com/hashicorp/vault/helper/metricsutil"
+	"github.com/mitchellh/cli"
+	"google.golang.org/api/option"
 )
 
 const (
@@ -220,4 +233,198 @@ func parseTelemetry(result *SharedConfig, list *ast.ObjectList) error {
 	}
 
 	return nil
+}
+
+// p237
+type SetupTelemetryOpts struct {
+	Config      *Telemetry
+	Ui          cli.Ui
+	ServiceName string
+	DisplayName string
+	UserAgent   string
+	ClusterName string
+}
+
+func SetupTelemetry(opts *SetupTelemetryOpts) (*metrics.InmemSink, *metricsutil.ClusterMetricSink, bool, error) {
+	if opts == nil {
+		return nil, nil, false, errors.New("nil opts passed into SetupTelemetry")
+	}
+
+	if opts.Config == nil {
+		opts.Config = &Telemetry{}
+	}
+
+	/* Setup telemetry
+	Aggregate on 10 second intervals for 1 minute. Expose the
+	metrics over stderr when there is a SIGUSR1 received.
+	*/
+	inm := metrics.NewInmemSink(10*time.Second, time.Minute)
+	metrics.DefaultInmemSignal(inm)
+
+	if opts.Config.MetricsPrefix != "" {
+		opts.ServiceName = opts.Config.MetricsPrefix
+	}
+
+	metricsConf := metrics.DefaultConfig(opts.ServiceName)
+	metricsConf.EnableHostname = !opts.Config.DisableHostname
+	metricsConf.EnableHostnameLabel = opts.Config.EnableHostnameLabel
+	if opts.Config.FilterDefault != nil {
+		metricsConf.FilterDefault = *opts.Config.FilterDefault
+	}
+
+	// Configure the statsite sink
+	var fanout metrics.FanoutSink
+	var prometheusEnabled bool
+
+	// Configure the Prometheus sink
+	if opts.Config.PrometheusRetentionTime != 0 {
+		prometheusEnabled = true
+		prometheusOpts := prometheus.PrometheusOpts{
+			Expiration: opts.Config.PrometheusRetentionTime,
+		}
+
+		sink, err := prometheus.NewPrometheusSinkFrom(prometheusOpts)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		fanout = append(fanout, sink)
+	}
+
+	if opts.Config.StatsiteAddr != "" {
+		sink, err := metrics.NewStatsiteSink(opts.Config.StatsiteAddr)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		fanout = append(fanout, sink)
+	}
+
+	// Configure the statsd sink
+	if opts.Config.StatsdAddr != "" {
+		sink, err := metrics.NewStatsdSink(opts.Config.StatsdAddr)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		fanout = append(fanout, sink)
+	}
+
+	// Configure the Circonus sink
+	if opts.Config.CirconusAPIToken != "" || opts.Config.CirconusCheckSubmissionURL != "" {
+		cfg := &circonus.Config{}
+		cfg.Interval = opts.Config.CirconusSubmissionInterval
+		cfg.CheckManager.API.TokenKey = opts.Config.CirconusAPIToken
+		cfg.CheckManager.API.TokenApp = opts.Config.CirconusAPIApp
+		cfg.CheckManager.API.URL = opts.Config.CirconusAPIURL
+		cfg.CheckManager.Check.SubmissionURL = opts.Config.CirconusCheckSubmissionURL
+		cfg.CheckManager.Check.ID = opts.Config.CirconusCheckID
+		cfg.CheckManager.Check.ForceMetricActivation = opts.Config.CirconusCheckForceMetricActivation
+		cfg.CheckManager.Check.InstanceID = opts.Config.CirconusCheckInstanceID
+		cfg.CheckManager.Check.SearchTag = opts.Config.CirconusCheckSearchTag
+		cfg.CheckManager.Check.DisplayName = opts.Config.CirconusCheckDisplayName
+		cfg.CheckManager.Check.Tags = opts.Config.CirconusCheckTags
+		cfg.CheckManager.Broker.ID = opts.Config.CirconusBrokerID
+		cfg.CheckManager.Broker.SelectTag = opts.Config.CirconusBrokerSelectTag
+
+		if cfg.CheckManager.API.TokenApp == "" {
+			cfg.CheckManager.API.TokenApp = opts.ServiceName
+		}
+
+		if cfg.CheckManager.Check.DisplayName == "" {
+			cfg.CheckManager.Check.DisplayName = opts.DisplayName
+		}
+
+		if cfg.CheckManager.Check.SearchTag == "" {
+			cfg.CheckManager.Check.SearchTag = fmt.Sprintf("service:%s", opts.ServiceName)
+		}
+
+		sink, err := circonus.NewCirconusSink(cfg)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		sink.Start()
+		fanout = append(fanout, sink)
+	}
+
+	if opts.Config.DogStatsDAddr != "" {
+		var tags []string
+
+		if opts.Config.DogStatsDTags != nil {
+			tags = opts.Config.DogStatsDTags
+		}
+
+		sink, err := datadog.NewDogStatsdSink(opts.Config.DogStatsDAddr, metricsConf.HostName)
+		if err != nil {
+			return nil, nil, false, fmt.Errorf("failed to start DogStatsD sink: %w", err)
+		}
+		sink.SetTags(tags)
+		fanout = append(fanout, sink)
+	}
+
+	// Configure the stackdriver sink
+	if opts.Config.StackdriverProjectID != "" {
+		client, err := monitoring.NewMetricClient(context.Background(), option.WithUserAgent(opts.UserAgent))
+		if err != nil {
+			return nil, nil, false, fmt.Errorf("Failed to create stackdriver client: %v", err)
+		}
+		sink := stackdriver.NewSink(client, &stackdriver.Config{
+			LabelExtractor: stackdrivervault.Extractor,
+			Bucketer:       stackdrivervault.Bucketer,
+			ProjectID:      opts.Config.StackdriverProjectID,
+			Location:       opts.Config.StackdriverLocation,
+			Namespace:      opts.Config.StackdriverNamespace,
+			DebugLogs:      opts.Config.StackdriverDebugLogs,
+		})
+		fanout = append(fanout, sink)
+	}
+
+	// Initialize the global sink
+	if len(fanout) > 1 {
+		// Hostname enabled will create poor quality metrics name for prometheus
+		if !opts.Config.DisableHostname {
+			opts.Ui.Warn("telemetry.disable_hostname has been set to false. Recommended setting is true for Prometheus to avoid poorly named metrics.")
+		}
+	} else {
+		metricsConf.EnableHostname = false
+	}
+	fanout = append(fanout, inm)
+	globalMetrics, err := metrics.NewGlobal(metricsConf, fanout)
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	// Intialize a wrapper around the global sink; this will be passed to Core
+	// and to any backend.
+	wrapper := metricsutil.NewClusterMetricSink(opts.ClusterName, globalMetrics)
+	wrapper.MaxGaugeCardinality = opts.Config.MaximumGaugeCardinality
+	wrapper.GaugeInterval = opts.Config.UsageGaugePeriod
+	wrapper.TelemetryConsts.LeaseMetricsEpsilon = opts.Config.LeaseMetricsEpsilon
+	wrapper.TelemetryConsts.LeaseMetricsNameSpaceLabels = opts.Config.LeaseMetricsNameSpaceLabels
+	wrapper.TelemetryConsts.NumLeaseMetricsTimeBuckets = opts.Config.NumLeaseMetricsTimeBuckets
+
+	// Parse the metric filters
+	telemetryAllowedPrefixes, telemetryBlockedPrefixes, err := parsePrefixFilter(opts.Config.PrefixFilter)
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	metrics.UpdateFilter(telemetryAllowedPrefixes, telemetryBlockedPrefixes)
+	return inm, wrapper, prometheusEnabled, nil
+}
+
+func parsePrefixFilter(prefixFilters []string) ([]string, []string, error) {
+	var telemetryAllowedPrefixes, telemetryBlockedPrefixes []string
+
+	for _, rule := range prefixFilters {
+		if rule == "" {
+			return nil, nil, fmt.Errorf("Cannot have empty filter rule in prefix_filter")
+		}
+		switch rule[0] {
+		case '+':
+			telemetryAllowedPrefixes = append(telemetryAllowedPrefixes, rule[1:])
+		case '-':
+			telemetryBlockedPrefixes = append(telemetryBlockedPrefixes, rule[1:])
+		default:
+			return nil, nil, fmt.Errorf("Filter rule must begin with either '+' or '-': %q", rule)
+		}
+	}
+	return telemetryAllowedPrefixes, telemetryBlockedPrefixes, nil
 }

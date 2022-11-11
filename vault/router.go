@@ -19,3 +19,16 @@ type Router struct {
 	storagePrefix      *radix.Tree
 	logger             hclog.Logger
 }
+
+// p44
+func NewRouter() *Router {
+	r := &Router{
+		root:               radix.New(),
+		storagePrefix:      radix.New(),
+		mountUUIDCache:     radix.New(),
+		mountAccessorCache: radix.New(),
+		// this will get replaced in production with a real logger but it's useful to have a default in place for tests
+		logger: hclog.NewNullLogger(),
+	}
+	return r
+}

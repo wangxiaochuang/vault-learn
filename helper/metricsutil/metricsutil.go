@@ -16,3 +16,8 @@ type MetricsHelper struct {
 type GaugeMetrics struct {
 	Metrics sync.Map
 }
+
+// p56
+func NewMetricsHelper(inMem *metrics.InmemSink, enablePrometheus bool) *MetricsHelper {
+	return &MetricsHelper{inMem, enablePrometheus, GaugeMetrics{Metrics: sync.Map{}}}
+}

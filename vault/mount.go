@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -8,8 +9,68 @@ import (
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
-// p51
+const (
+	coreMountConfigPath = "core/mounts"
+
+	coreLocalMountConfigPath = "core/local-mounts"
+
+	backendBarrierPrefix = "logical/"
+
+	systemBarrierPrefix = "sys/"
+
+	mountTableType = "mounts"
+)
+
 type ListingVisibilityType string
+
+const (
+	ListingVisibilityDefault ListingVisibilityType = ""
+	ListingVisibilityHidden  ListingVisibilityType = "hidden"
+	ListingVisibilityUnauth  ListingVisibilityType = "unauth"
+
+	systemMountPath    = "sys/"
+	identityMountPath  = "identity/"
+	cubbyholeMountPath = "cubbyhole/"
+
+	systemMountType      = "system"
+	identityMountType    = "identity"
+	cubbyholeMountType   = "cubbyhole"
+	pluginMountType      = "plugin"
+	mountTypeNSCubbyhole = "ns_cubbyhole"
+
+	MountTableUpdateStorage   = true
+	MountTableNoUpdateStorage = false
+)
+
+var (
+	errLoadMountsFailed = errors.New("failed to setup mount table")
+
+	protectedMounts = []string{
+		"audit/",
+		"auth/",
+		systemMountPath,
+		cubbyholeMountPath,
+		identityMountPath,
+	}
+
+	untunableMounts = []string{
+		cubbyholeMountPath,
+		systemMountPath,
+		"audit/",
+		identityMountPath,
+	}
+
+	singletonMounts = []string{
+		cubbyholeMountType,
+		systemMountType,
+		"token",
+		identityMountType,
+	}
+
+	mountAliases = map[string]string{"generic": "kv"}
+
+	PendingRemovalMountsAllowed = false
+)
 
 // p128
 type MountTable struct {

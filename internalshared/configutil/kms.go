@@ -1,13 +1,22 @@
 package configutil
 
 import (
+	"crypto/rand"
 	"fmt"
+	"io"
 	"strings"
 
+	"github.com/hashicorp/go-hclog"
+	wrapping "github.com/hashicorp/go-kms-wrapping/v2"
 	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-secure-stdlib/parseutil"
 	"github.com/hashicorp/hcl"
 	"github.com/hashicorp/hcl/hcl/ast"
+)
+
+var (
+	ConfigureWrapper             = configureWrapper
+	CreateSecureRandomReaderFunc = createSecureRandomReader
 )
 
 type EntropyMode int
@@ -104,4 +113,19 @@ func parseKMS(result *[]*KMS, list *ast.ObjectList, blockName string, maxKMS int
 // p127
 func ParseKMSes(d string) ([]*KMS, error) {
 	panic("not implement")
+}
+
+// p163
+func configureWrapper(configKMS *KMS, infoKeys *[]string, info *map[string]string, logger hclog.Logger, opts ...wrapping.Option) (wrapping.Wrapper, error) {
+	switch wrapping.WrapperType(configKMS.Type) {
+	case wrapping.WrapperTypeShamir:
+		return nil, nil
+	default:
+		panic("not implement")
+	}
+}
+
+// p345
+func createSecureRandomReader(conf *SharedConfig, wrapper wrapping.Wrapper) (io.Reader, error) {
+	return rand.Reader, nil
 }

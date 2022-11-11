@@ -2,10 +2,36 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"io"
 	"time"
 
 	"github.com/hashicorp/vault/sdk/logical"
+)
+
+var (
+	ErrBarrierSealed = errors.New("Vault is sealed")
+
+	ErrBarrierAlreadyInit = errors.New("Vault is already initialized")
+
+	ErrBarrierNotInit = errors.New("Vault is not initialized")
+
+	ErrBarrierInvalidKey = errors.New("Unseal failed, invalid key")
+
+	ErrPlaintextTooLarge = errors.New("plaintext value too large")
+)
+
+const (
+	barrierInitPath = "barrier/init"
+
+	keyringPath   = "core/keyring"
+	keyringPrefix = "core/"
+
+	keyringUpgradePrefix = "core/upgrade/"
+
+	rootKeyPath = "core/master"
+
+	shamirKekPath = "core/shamir-kek"
 )
 
 // p76

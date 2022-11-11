@@ -11,6 +11,16 @@ var PluginTypes = []PluginType{
 
 type PluginType uint32
 
+// This is a list of PluginTypes used by Vault.
+// If we need to add any in the future, it would
+// be best to add them to the _end_ of the list below
+// because they resolve to incrementing numbers,
+// which may be saved in state somewhere. Thus if
+// the name for one of those numbers changed because
+// a value were added to the middle, that could cause
+// the wrong plugin types to be read from storage
+// for a given underlying number. Example of the problem
+// here: https://play.golang.org/p/YAaPw5ww3er
 const (
 	PluginTypeUnknown PluginType = iota
 	PluginTypeCredential
