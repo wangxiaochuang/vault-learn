@@ -3,10 +3,17 @@ package vault
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/hashicorp/vault/sdk/physical"
+	"github.com/hashicorp/vault/wxc"
+)
+
+const (
+	uiConfigKey          = "config"
+	uiConfigPlaintextKey = "config_plaintext"
 )
 
 // p23
@@ -137,6 +144,19 @@ func (c *UIConfig) DeleteHeader(ctx context.Context, header string) error {
 }
 
 func (c *UIConfig) get(ctx context.Context) (*uiConfigEntry, error) {
+	plaintextConfigRaw, err := c.physicalStorage.Get(ctx, uiConfigPlaintextKey)
+	if err != nil {
+		return nil, err
+	}
+
+	configRaw, uiConfigGetErr := c.barrierStorage.Get(ctx, uiConfigKey)
+	if uiConfigGetErr != nil && !strings.Contains(uiConfigGetErr.Error(), ErrBarrierSealed.Error()) {
+		return nil, uiConfigGetErr
+	}
+	if configRaw == nil {
+		return nil, nil
+	}
+	wxc.P(plaintextConfigRaw)
 	panic("not implement")
 }
 

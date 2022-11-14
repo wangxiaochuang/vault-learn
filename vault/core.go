@@ -722,6 +722,7 @@ func NewCore(conf *CoreConfig) (*Core, error) {
 		return nil, err
 	}
 
+	// 对physic进行了一次cache
 	if err = coreInit(c, conf); err != nil {
 		return nil, err
 	}
@@ -795,7 +796,7 @@ func NewCore(conf *CoreConfig) (*Core, error) {
 	}
 	_, ok := logicalBackends["kv"]
 	if !ok {
-		panic("not implement")
+		logicalBackends["kv"] = PassthroughBackendFactory
 	}
 
 	logicalBackends["cubbyhole"] = CubbyholeBackendFactory

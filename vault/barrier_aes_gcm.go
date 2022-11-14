@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/hashicorp/vault/sdk/physical"
 	"go.uber.org/atomic"
@@ -179,7 +182,68 @@ func (b *AESGCMBarrier) Get(ctx context.Context, key string) (*logical.StorageEn
 }
 
 func (b *AESGCMBarrier) lockSwitchedGet(ctx context.Context, key string, getLock bool) (*logical.StorageEntry, error) {
-	panic("not implement")
+	defer metrics.MeasureSince([]string{"barrier", "get"}, time.Now())
+	if getLock {
+		b.l.RLock()
+	}
+	if b.sealed {
+		if getLock {
+			b.l.RUnlock()
+		}
+		return nil, ErrBarrierSealed
+	}
+
+	// Read the key from the backend
+	pe, err := b.backend.Get(ctx, key)
+	if err != nil {
+		if getLock {
+			b.l.RUnlock()
+		}
+		return nil, err
+	} else if pe == nil {
+		if getLock {
+			b.l.RUnlock()
+		}
+		return nil, nil
+	}
+
+	if len(pe.Value) < 4 {
+		if getLock {
+			b.l.RUnlock()
+		}
+		return nil, errors.New("invalid value")
+	}
+
+	// Verify the term
+	term := binary.BigEndian.Uint32(pe.Value[:4])
+
+	// Get the GCM by term
+	// It is expensive to do this first but it is not a
+	// normal case that this won't match
+	gcm, err := b.aeadForTerm(term)
+	if getLock {
+		b.l.RUnlock()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if gcm == nil {
+		return nil, fmt.Errorf("no decryption key available for term %d", term)
+	}
+
+	// Decrypt the ciphertext
+	plain, err := b.decrypt(key, gcm, pe.Value)
+	if err != nil {
+		return nil, fmt.Errorf("decryption failed: %w", err)
+	}
+
+	// Wrap in a logical entry
+	entry := &logical.StorageEntry{
+		Key:      key,
+		Value:    plain,
+		SealWrap: pe.SealWrap,
+	}
+	return entry, nil
 }
 
 func (b *AESGCMBarrier) Delete(ctx context.Context, key string) error {
